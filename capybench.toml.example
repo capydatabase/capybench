@@ -1,0 +1,81 @@
+# CapyBench suite configuration. Copy to capybench.toml and fill in real values.
+#
+# Start CapyDB-only to get your own baseline, then add competitor [targets.*] blocks with
+# matching tier_usd so charts compare like-for-like. Secrets: prefer libpq env / .pgpass
+# over inlining passwords here.
+
+notes = "baseline run on capydb-db1"
+
+[results]
+# Where samples land. Dogfood a CapyDB project for this.
+dsn = "host=127.0.0.1 port=5432 user=postgres dbname=capybench sslmode=disable"
+
+# --- Targets ---------------------------------------------------------------------------
+# Each target is a connectable Postgres tagged with the tier/region/version it represents.
+
+[targets.capydb-small]
+host = "small.db.capydb.dev"
+port = 5432
+user = "app"
+dbname = "app"
+sslmode = "require"
+tier_usd = 15.0
+pg_version = "17"
+region = "eu-central"
+provider = "capydb"
+project = "capybench-victim"      # slug used by control commands below
+
+[targets.capydb-aggressor]
+host = "noisy.db.capydb.dev"
+user = "app"
+dbname = "app"
+sslmode = "require"
+tier_usd = 15.0
+pg_version = "17"
+region = "eu-central"
+provider = "capydb"
+project = "capybench-aggressor"
+
+# Example competitor target (add once baseline looks right):
+# [targets.neon-launch]
+# host = "ep-xxx.eu-central-1.aws.neon.tech"
+# user = "app"; dbname = "app"; sslmode = "require"
+# tier_usd = 19.0; pg_version = "17"; region = "eu-central"; provider = "neon"
+
+# --- Control: lifecycle commands per provider ------------------------------------------
+# Templates are shell commands that emit ONE JSON object on stdout. Fill these with the
+# real `capydb` CLI invocations (verify against `capydb --help`) — the harness executes
+# them, it does not hardcode API paths. Variables: {project} {branch}.
+
+[control.capydb.commands]
+branch_create = "capydb branch create --project {project} --name {branch} --json"
+branch_delete = "capydb branch delete --project {project} --name {branch} --json --yes"
+sleep         = "capydb instance sleep --project {project} --json"
+wake          = "capydb instance wake --project {project} --json"
+
+# --- Scenarios -------------------------------------------------------------------------
+
+[throughput]
+scale = 50
+duration_s = 60
+concurrencies = [1, 8, 16, 32, 64]
+sysbench_percentile = 99
+read_only = true
+
+[noisy_neighbor]
+victim = "capydb-small"
+aggressor = "capydb-aggressor"
+victim_concurrency = 16
+aggressor_concurrency = 128
+duration_s = 60
+sysbench_percentile = 99
+
+[branch_speed]
+target = "capydb-small"
+parent_sizes_mb = [1024, 10240, 102400]
+repeats = 3
+
+[cold_start]
+target = "capydb-small"
+repeats = 30
+settle_s = 5
