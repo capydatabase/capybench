@@ -1,59 +1,123 @@
 # CapyBench suite configuration. Copy to capybench.toml and fill in real values.
 #
-# Start CapyDB-only to get your own baseline, then add competitor [targets.*] blocks with
-# matching tier_usd so charts compare like-for-like. Secrets: prefer libpq env / .pgpass
-# over inlining passwords here.
+# The shape below is the common case: two plain Postgres targets ("generic" provider),
+# which is all `throughput`, `noisy_neighbor` and `query_latency` need. `branch_speed`
+# and `cold_start` additionally require a provider adapter that can create branches or
+# force scale-to-zero - see "Providers" below and the provider matrix in the README.
+#
+# Start with one target to get a baseline, then add comparison [targets.*] blocks with
+# matching tier_usd so charts compare like-for-like. Secrets: API tokens come from
+# environment variables (see [providers.*] token_env); prefer libpq env vars / .pgpass
+# over inlining Postgres passwords here.
 
-notes = "baseline run on capydb-db1"
+notes = "baseline run"
+
+# Where THIS client machine runs (e.g. "eu-central-1a", "us-east-1", "hel1"). Results are
+# only comparable when the client is colocated with the targets - always set and publish
+# this.
+client_region = "eu-central-1a"
 
 [results]
-# Where samples land. Dogfood a CapyDB project for this.
+# Where samples land. Any Postgres works; apply sql/*.sql to it first.
 dsn = "host=127.0.0.1 port=5432 user=postgres dbname=capybench sslmode=disable"
 
-# --- Targets ---------------------------------------------------------------------------
+# --- Targets -----------------------------------------------------------------------------
 # Each target is a connectable Postgres tagged with the tier/region/version it represents.
+# `provider` names a [providers.<name>] block; omit it for plain Postgres ("generic"),
+# which needs no provider block at all.
 
-[targets.capydb-small]
-host = "small.db.capydb.dev"
+[targets.pg-a]
+host = "a.example.com"
 port = 5432
 user = "app"
 dbname = "app"
 sslmode = "require"
-tier_usd = 15.0
+# sslrootcert = "system"            # CA bundle for verify-ca / verify-full
+tier_usd = 15.0                     # monthly price of this plan - the fairness axis
 pg_version = "17"
 region = "eu-central"
-provider = "capydb"
-project = "capybench-victim"      # slug used by control commands below
 
-[targets.capydb-aggressor]
-host = "noisy.db.capydb.dev"
+# A second target on the SAME physical host as the first is what makes noisy_neighbor
+# meaningful: one plays victim, the other plays aggressor.
+[targets.pg-b]
+host = "b.example.com"
 user = "app"
 dbname = "app"
 sslmode = "require"
 tier_usd = 15.0
 pg_version = "17"
 region = "eu-central"
-provider = "capydb"
-project = "capybench-aggressor"
 
-# Example competitor target (add once baseline looks right):
-# [targets.neon-launch]
-# host = "ep-xxx.eu-central-1.aws.neon.tech"
-# user = "app"; dbname = "app"; sslmode = "require"
-# tier_usd = 19.0; pg_version = "17"; region = "eu-central"; provider = "neon"
+# A competing platform at a comparable price, for side-by-side charts:
+# [targets.other-managed-pg]
+# host = "xxxx.example-provider.com"
+# user = "app"
+# dbname = "app"
+# sslmode = "require"
+# tier_usd = 19.0
+# pg_version = "17"
+# region = "eu-central"
 
-# --- Control: lifecycle commands per provider ------------------------------------------
-# Templates are shell commands that emit ONE JSON object on stdout. Fill these with the
-# real `capydb` CLI invocations (verify against `capydb --help`) — the harness executes
-# them, it does not hardcode API paths. Variables: {project} {branch}.
+# --- Providers ---------------------------------------------------------------------------
+# A provider block gives the harness lifecycle control (branching, forced sleep) over the
+# platform behind a target, which is what branch_speed and cold_start measure. `type`
+# selects the adapter and defaults to the block name. "generic" (plain DSN, no lifecycle
+# ops) is the default and needs no block. See README "Adding a provider" to contribute
+# adapters for other platforms.
+#
+# Example using the built-in "capydb" adapter; a target opts in with `provider` +
+# `project`:
+#
+# [providers.capydb]
+# type = "capydb"                   # optional here since the block is named "capydb"
+# api_url = "https://api.capydb.dev"
+# token_env = "CAPYDB_TOKEN"        # env var holding the API token (never put it here)
+# branch_ttl_hours = 2
+#
+# [targets.pg-branching]
+# host = "small.db.capydb.dev"
+# user = "app"
+# dbname = "app"
+# sslmode = "require"
+# tier_usd = 15.0
+# pg_version = "17"
+# region = "eu-central"
+# provider = "capydb"
+# project = "prj_xxxxxxxx"          # provider-scoped ID used by lifecycle ops
 
-[control.capydb.commands]
-branch_create = "capydb branch create --project {project} --name {branch} --json"
-branch_delete = "capydb branch delete --project {project} --name {branch} --json --yes"
-sleep         = "capydb instance sleep --project {project} --json"
-wake          = "capydb instance wake --project {project} --json"
+# --- Attestation -------------------------------------------------------------------------
+# Ground truth the harness cannot verify, declared by you. Published in the report clearly
+# labelled as claimed, not measured. Anything a reader would otherwise have to assume
+# belongs here - especially whether noisy_neighbor's two targets really share a node.
+#
+# [attestation]
+# node = "4 dedicated vCPU / 16 GB, NVMe"
+# targets_colocated = true
+# tenants_on_node = 18
+# client_machine = "same-region VM, 8 vCPU"
 
-# --- Scenarios -------------------------------------------------------------------------
+# --- Host probe --------------------------------------------------------------------------
+# The privileged vantage point, for an operator benchmarking their own infrastructure. The
+# runner snapshots it around every scenario and records what changed (vantage = "host"),
+# separately from the client-side numbers. Reads standard Linux interfaces only, so it
+# works on any platform you can SSH into.
+#
+# [host_probe]
+# type = "ssh"
+# host = "db1.example.com"
+# user = "root"
+# identity_file = "~/.ssh/id_ed25519"
+# label = "db1"                       # node name recorded on host-vantage rows
+# cgroup = "/sys/fs/cgroup/system.slice/pg-tenant.service"   # per-tenant CPU throttling
+
+# --- Scenarios ---------------------------------------------------------------------------
+# Omit a section to skip that scenario. `capybench check` prints which will run and which
+# will skip before you spend time on a run.
+
+# Posture and capability facts - no load, cheap, and the context every other number needs.
+# Run this every time.
+[fact_sheet]
+probe_gucs = true                     # prove which GUCs the role may set, don't assume
 
 [throughput]
 scale = 50
@@ -63,19 +127,75 @@ sysbench_percentile = 99
 read_only = true
 
 [noisy_neighbor]
-victim = "capydb-small"
-aggressor = "capydb-aggressor"
+victim = "pg-a"
+aggressor = "pg-b"
 victim_concurrency = 16
 aggressor_concurrency = 128
 duration_s = 60
 sysbench_percentile = 99
 
-[branch_speed]
-target = "capydb-small"
-parent_sizes_mb = [1024, 10240, 102400]
+# Single-query latency ("endpoint" numbers): warm SELECT 1 / indexed point-select on a
+# seeded table, plus fresh TLS+auth connects. Omit `targets` to run against every target.
+[query_latency]
+targets = ["pg-a"]
+repeats = 500
+connect_repeats = 30
+rows = 10000
+
+# How many connections you really get, and what the wall looks like. This walks a database
+# toward its limit - raise max_probe consciously, and not against production.
+[connection_ceiling]
+targets = ["pg-a"]
+max_probe = 100
+connect_timeout_s = 10
+
+# What a buffer miss costs. size_mb must be comfortably larger than the target's
+# shared_buffers or the "cold" scan will not be cold - the scenario reports the hit ratio
+# it actually achieved and warns if eviction failed.
+[cold_cache]
+targets = ["pg-a"]
+size_mb = 512
 repeats = 3
 
-[cold_start]
-target = "capydb-small"
-repeats = 30
-settle_s = 5
+# Does throughput hold up? Sixty seconds is exactly the window in which a burstable
+# instance looks fastest; 30 minutes is where burst credits run out.
+[sustained]
+targets = ["pg-a"]
+scale = 50
+concurrency = 16
+duration_s = 1800
+window_s = 60                         # one recorded sample per window
+
+# Does autovacuum keep up under sustained writes, or does bloat become permanent?
+[vacuum_under_write]
+target = "pg-a"
+scale = 50
+concurrency = 8
+duration_s = 600
+sample_interval_s = 30
+
+# --- Lifecycle scenarios -------------------------------------------------------------
+# Each needs a provider implementing the matching capability; on a "generic" target they
+# are skipped with a message explaining what was missing.
+
+# [branch_speed]                      # capability: branch
+# target = "pg-branching"
+# parent_sizes_mb = [1024, 10240, 102400]
+# repeats = 3
+
+# [cold_start]                        # capability: sleep
+# target = "pg-branching"
+# repeats = 30
+# settle_s = 5
+
+# [restore_rto]                       # capability: restore
+# target = "pg-branching"
+# repeats = 1
+# restore_time = "2026-08-17T10:00:00Z"   # omit for the most recent recoverable state
+
+# [provision_speed]                   # capability: provision
+# provider = "capydb"                 # names a [providers.*] block, not a target:
+# repeats = 3                         # the whole point is creating a database from nothing
+# pg_version = "17"
+# region = "eu-central"
+# tier_usd = 15.0

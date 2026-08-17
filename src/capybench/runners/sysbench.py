@@ -8,6 +8,7 @@ present in the build.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -44,6 +45,15 @@ def _common_flags(target: Target, *, threads: int, duration_s: int, percentile: 
     return flags
 
 
+def _env(target: Target) -> dict[str, str]:
+    """sysbench has no TLS flags for the pgsql driver; libpq env vars still apply."""
+    env = os.environ.copy()
+    env["PGSSLMODE"] = target.sslmode
+    if target.sslrootcert is not None:
+        env["PGSSLROOTCERT"] = target.sslrootcert
+    return env
+
+
 def _script(read_only: bool) -> str:
     return "oltp_read_only" if read_only else "oltp_read_write"
 
@@ -60,7 +70,7 @@ def prepare(
         f"--table-size={table_size}",
         "prepare",
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    proc = subprocess.run(cmd, env=_env(target), capture_output=True, text=True, check=False)
     if proc.returncode != 0:
         raise RuntimeError(
             f"sysbench prepare failed on {target.name} (rc={proc.returncode}):\n{proc.stderr}"
@@ -87,7 +97,7 @@ def run(
         f"--table-size={table_size}",
         "run",
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    proc = subprocess.run(cmd, env=_env(target), capture_output=True, text=True, check=False)
     if proc.returncode != 0:
         raise RuntimeError(
             f"sysbench run failed on {target.name} (rc={proc.returncode}):\n{proc.stderr}"
@@ -109,9 +119,7 @@ def run(
     )
 
 
-def cleanup(
-    target: Target, *, tables: int = 8, bin_path: str = "sysbench"
-) -> None:
+def cleanup(target: Target, *, tables: int = 8, bin_path: str = "sysbench") -> None:
     """Drop sysbench tables."""
     cmd = [
         bin_path,
@@ -120,4 +128,4 @@ def cleanup(
         f"--tables={tables}",
         "cleanup",
     ]
-    subprocess.run(cmd, capture_output=True, text=True, check=False)
+    subprocess.run(cmd, env=_env(target), capture_output=True, text=True, check=False)

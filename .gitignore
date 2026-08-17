@@ -1,8 +1,15 @@
 .venv/
 __pycache__/
 *.pyc
+.ruff_cache/
+.pytest_cache/
+dist/
+.DS_Store
+
+# Local run artifacts and operator-specific material (own results, own reports,
+# own config). Nothing provider-specific belongs in the tracked tree.
+internal/
 capybench.toml
 charts/
-.ruff_cache/
-uv.lock
-dist/
+raw/
+report.html

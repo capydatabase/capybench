@@ -1,9 +1,12 @@
-"""Scenario 4 — scale-to-zero cold-start / wake latency.
+"""Scenario 4 - scale-to-zero cold-start / wake latency.
 
-Put the instance to sleep, wait for it to settle, then time the first connection +
-``SELECT 1``. On CapyDB that first connect is what socket-activates the instance, so this
-directly measures wake-from-sleep as a client experiences it. Repeat for a distribution
-(charts show the CDF / p50 / p95).
+Put the instance to sleep via the provider, wait for it to settle, then time the first
+connection + ``SELECT 1``. On scale-to-zero platforms that first connect is what wakes
+the instance, so this directly measures wake-from-sleep as a client experiences it.
+Repeat for a distribution (charts show the CDF).
+
+Needs :attr:`~capybench.capabilities.Capability.SLEEP`; the runner skips this scenario for
+providers without it.
 """
 
 from __future__ import annotations
@@ -13,8 +16,8 @@ from collections.abc import Callable
 
 import psycopg
 
+from .. import providers
 from ..config import Suite
-from ..control import commands
 from ..store import Run, Sample
 
 SCENARIO = "cold_start"
@@ -27,11 +30,11 @@ def run(suite: Suite, run: Run, *, log: Callable[[str], None]) -> None:
         return
 
     target = suite.target(cfg.target)
-    control = suite.control_for(target)
+    provider = providers.for_target(suite, target)
 
     for i in range(cfg.repeats):
         log(f"cold_start: sleeping {target.name} (iter {i + 1}/{cfg.repeats})")
-        commands.sleep_instance(control, target)
+        provider.trigger_sleep(target)
         _busy_wait(cfg.settle_s)
 
         started = time.monotonic()

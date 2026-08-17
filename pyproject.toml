@@ -1,20 +1,25 @@
 [project]
 name = "capybench"
-version = "1.0.0"
-description = "CapyDB competitive benchmark harness — throughput, isolation, branching, cold-start"
+version = "1.1.0"
+description = "Provider-neutral managed-Postgres benchmark harness - latency, throughput, isolation, sustained drift, vacuum, cold cache, connection limits, provisioning, branching, restore and cold start"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
     "psycopg[binary]>=3.3.4",
-    "matplotlib>=3.11.0",
+    "matplotlib>=3.11.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/capy-base/capybench"
+Repository = "https://github.com/capy-base/capybench"
 
 [project.scripts]
 capybench = "capybench.cli:main"
 
 [dependency-groups]
 dev = [
-    "ruff>=0.15.20",
+    "ruff>=0.16.1",
     "pytest>=9.1.1",
 ]
 
@@ -31,3 +36,6 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
