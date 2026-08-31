@@ -17,6 +17,19 @@ notes = "baseline run"
 # this.
 client_region = "eu-central-1a"
 
+# PIN THE CLIENT. Recorded on every run and, more importantly, a contract with your
+# future self: fresh-connect time is dominated by client-side TLS handshake + SCRAM, so
+# two runs from different client images/instance types are not comparable no matter how
+# stable the database is. Rebuild the client from this exact spec for every campaign.
+client_image = "hetzner:cx43:ubuntu-26.04"
+
+# How many times `capybench run` executes the selected scenarios, in one run.
+# A SINGLE PASS IS NOT PUBLISHABLE if the node also serves live traffic: measured on a
+# production node, throughput moved by tens of percent between identical back-to-back
+# runs purely on how many neighbouring workloads happened to be awake. Use >= 5 and
+# publish the distribution (`capybench summary`), not the single number.
+run_repeats = 5
+
 [results]
 # Where samples land. Any Postgres works; apply sql/*.sql to it first.
 dsn = "host=127.0.0.1 port=5432 user=postgres dbname=capybench sslmode=disable"
@@ -125,6 +138,23 @@ duration_s = 60
 concurrencies = [1, 8, 16, 32, 64]
 sysbench_percentile = 99
 read_only = true
+# Open-loop passes, in transactions/sec. The concurrencies above are CLOSED loop: each
+# client waits for its own previous transaction, so when the database stalls the client
+# stalls too and the work that would have queued is never issued - and never appears in
+# the tail. That is coordinated omission, and it is why a closed-loop p99 can look
+# healthy through an incident users experienced as an outage.
+#
+# An open-loop pass issues on a fixed schedule regardless of how fast answers come back,
+# then reports how far behind schedule each transaction started. Bracket the closed-loop
+# result: one rate comfortably under the measured peak TPS, one near it. Reported as
+# pgbench_queued_p50/p95/p99_ms (service time + queue wait, i.e. what a caller actually
+# experienced) alongside the usual pgbench_p* series.
+#
+# Leave empty for closed-loop only. Requires the client host to sustain the rate - check
+# transactions_skipped is 0 on the low rate, or the client was the bottleneck.
+open_loop_rates_tps = [200, 800]
+open_loop_clients = 64
+open_loop_latency_limit_ms = 10000
 
 [noisy_neighbor]
 victim = "pg-a"

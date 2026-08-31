@@ -77,6 +77,11 @@ class Run:
     def __init__(self, conn: psycopg.Connection, run_id: str) -> None:
         self._conn = conn
         self.run_id = run_id
+        # Which repeat pass is currently executing. Stamped into every sample's
+        # params so a run with repeats > 1 yields a DISTRIBUTION rather than a
+        # single point. Set by the CLI between passes; scenarios never touch it,
+        # which is why repeats needed no change to any scenario.
+        self.repeat: int = 0
 
     @classmethod
     def start(
@@ -130,7 +135,7 @@ class Run:
                 sample.metric,
                 sample.value,
                 sample.unit,
-                json.dumps(sample.params or {}),
+                json.dumps({**(sample.params or {}), "repeat": self.repeat}),
                 json.dumps(sample.raw or {}),
             ),
         )

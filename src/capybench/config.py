@@ -88,6 +88,23 @@ class ThroughputConfig:
     concurrencies: tuple[int, ...] = (1, 8, 16, 32, 64)
     sysbench_percentile: int = 99
     read_only: bool = False  # also run a read-only variant when True
+    # Open-loop arrival rates (transactions/sec) to additionally measure at. Every
+    # closed-loop number above is subject to coordinated omission: when the database
+    # stalls, the fixed-concurrency client stalls with it, so the requests that would
+    # have queued are never issued and never appear in the tail. An open-loop run
+    # issues on a schedule regardless, which is how production load behaves.
+    #
+    # Pick rates that bracket the closed-loop result - one comfortably below the
+    # measured peak TPS and one near it - so the pair shows both the healthy case and
+    # the one where the queue starts forming. Empty = closed-loop only.
+    open_loop_rates_tps: tuple[float, ...] = ()
+    # Open-loop client count. Must be high enough that clients are not themselves the
+    # limit at the requested rate; it is a ceiling on concurrency, not a target.
+    open_loop_clients: int = 64
+    # Abandon a transaction that has fallen this far behind schedule, the way a real
+    # client with a timeout would. Keeps a saturated run from producing percentiles
+    # dominated by an ever-growing backlog. None = never abandon.
+    open_loop_latency_limit_ms: float | None = 10_000.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,6 +232,16 @@ class Suite:
     # Where the client machine running the harness lives (e.g. "eu-central-1a", "hel1").
     # Recorded with every run; published results should always state it.
     client_region: str | None = None
+    # Number of times `capybench run` executes the selected scenarios within one run.
+    # A single pass on a node shared with live workloads is not publishable: throughput
+    # moved by tens of percent between identical runs purely on how many neighbouring
+    # cells happened to be awake. >=5 and report the distribution.
+    run_repeats: int = 1
+    # The exact client image/instance this suite is meant to run from, e.g.
+    # "hetzner:cx43:ubuntu-26.04". Recorded on every run. Fresh-connect is dominated by
+    # client-side TLS+SCRAM cost, so numbers from different client images are not
+    # comparable no matter how stable the server is.
+    client_image: str | None = None
 
     def target(self, name: str) -> Target:
         try:
@@ -512,4 +539,17 @@ def load(path: str | Path) -> Suite:
         attestation=_attestation_from_toml(data),
         notes=data.get("notes") if isinstance(data.get("notes"), str) else None,
         client_region=client_region,
+        run_repeats=_positive_int(data.get("run_repeats"), "run_repeats", default=1),
+        client_image=(
+            data.get("client_image") if isinstance(data.get("client_image"), str) else None
+        ),
     )
+
+
+def _positive_int(value: object, name: str, *, default: int) -> int:
+    """Config ints that must be >= 1; None means "use the default"."""
+    if value is None:
+        return default
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise TypeError(f"'{name}' must be an integer >= 1")
+    return value

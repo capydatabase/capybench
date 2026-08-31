@@ -149,6 +149,16 @@ run, which will skip, and why.
   `synchronous_commit=off` is not comparable with a durable one. `fact_sheet` records the
   posture and the HTML report puts it next to the charts; if two targets disagree on
   `durability_posture`, say so rather than putting their bars side by side.
+- **Closed-loop tails are optimistic by construction.** The `concurrencies` sweep is a
+  closed loop: each client waits for its own previous transaction, so when the database
+  stalls the client stalls with it and the work that *would* have queued is never issued
+  and never measured. That is **coordinated omission**, and it is why a closed-loop p99
+  can look healthy through an incident users experienced as an outage. Set
+  `open_loop_rates_tps` to also issue at a fixed arrival rate the way production does;
+  quote `pgbench_queued_p*` (service time plus queue wait - what a caller experienced)
+  rather than `pgbench_p*` when you are making a tail-latency claim. Check
+  `transactions_skipped` is 0 at the lower rate, or the client, not the database, was the
+  bottleneck.
 - **`sustained` is where short benchmarks lie.** Sixty seconds is exactly the window in
   which a burstable instance looks fastest. Run at least 30 minutes before believing a
   throughput number, and report `tps_drift_pct`.
@@ -163,8 +173,11 @@ run, which will skip, and why.
 - **Repeat for distributions.** Single-shot numbers, especially cold-start, are noise;
   the harness records every repeat and charts CDFs.
 - **Check the terms of service** before naming a vendor in published charts - some
-  managed-Postgres ToS restrict benchmark publication. "vs shared tenancy" as a category
-  is safer than a named-vendor callout when in doubt.
+  managed-Postgres ToS restrict benchmark publication ("DeWitt clauses"). "vs shared
+  tenancy" as a category is safer than a named-vendor callout when in doubt. CapyDB's own
+  terms explicitly permit benchmarking and publication, including comparisons, on the
+  good-faith and reproducibility conditions this section describes - no permission or
+  prior notice needed.
 
 ## Layout
 
@@ -236,3 +249,28 @@ a probe that silently reports zeros is worse than no probe.
 ## License
 
 MIT - see [LICENSE](LICENSE). Copyright (c) 2026 CapyDB.
+
+## Publishing numbers honestly
+
+A single pass is a point estimate of a noisy process. Measured against a production node
+that also serves live traffic, identical back-to-back runs moved throughput by tens of
+percent — entirely on how many neighbouring workloads were awake at the time. Two rules:
+
+1. **Repeat.** Set `run_repeats = 5` (or `--repeats 5`) and publish the distribution:
+
+   ```
+   capybench run --config capybench.toml --repeats 5
+   capybench summary --config capybench.toml        # median + min/max + spread
+   ```
+
+   `summary` flags any metric spanning >= 15% of its median across repeats. Quote those
+   as a range; a median alone misleads.
+
+2. **Pin the client.** Set `client_image` and rebuild the client from that exact spec each
+   campaign. Fresh-connect is dominated by client-side TLS + SCRAM, so a different image,
+   libpq, or instance type moves it independently of the database. Every run records the
+   client kernel, libc, psycopg/pgbench/sysbench versions in `bench_run.client`, so you can
+   tell after the fact whether two runs were ever comparable.
+
+Scenarios differ a lot in how stable they are. Cold start and the noisy-neighbour fair-share
+ratio reproduce tightly; throughput on a shared node does not.

@@ -66,6 +66,28 @@ def _run_target(
                     target, clients=clients, duration_s=cfg.duration_s, read_only=True
                 )
                 _record_pg(run, suite, target.name, clients, pg_ro, variant="read-only")
+
+        # Open-loop passes. Deliberately outside the concurrency loop: the variable
+        # here is the ARRIVAL RATE, not the client count, and pairing every rate with
+        # every concurrency would multiply the run time for numbers that say the same
+        # thing. See ThroughputConfig.open_loop_rates_tps.
+        for rate in cfg.open_loop_rates_tps:
+            log(f"throughput: {target.name} pgbench open-loop rate={rate}/s")
+            pg_ol = pgbench.run(
+                target,
+                clients=cfg.open_loop_clients,
+                duration_s=cfg.duration_s,
+                rate_tps=rate,
+                latency_limit_ms=cfg.open_loop_latency_limit_ms,
+            )
+            _record_pg(
+                run,
+                suite,
+                target.name,
+                cfg.open_loop_clients,
+                pg_ol,
+                variant=f"open-loop-{rate:g}tps",
+            )
     finally:
         sysbench.cleanup(target)
 
@@ -98,9 +120,28 @@ def _record_pg(
         ("pgbench_p50_ms", r.latency_p50_ms),
         ("pgbench_p95_ms", r.latency_p95_ms),
         ("pgbench_p99_ms", r.latency_p99_ms),
+        # Open-loop only. Schedule lag added back in: what a caller waiting since the
+        # transaction was DUE experienced, rather than what the server saw once it
+        # finally got the request. These are the numbers to quote for tail latency;
+        # the pgbench_p* series above stay comparable with closed-loop runs.
+        ("pgbench_queued_p50_ms", r.latency_including_lag_p50_ms),
+        ("pgbench_queued_p95_ms", r.latency_including_lag_p95_ms),
+        ("pgbench_queued_p99_ms", r.latency_including_lag_p99_ms),
+        ("pgbench_schedule_lag_avg_ms", r.schedule_lag_avg_ms),
     ):
         if value is not None:
             run.record(Sample(metric=metric, value=value, unit="ms", **common))
+    if r.rate_tps is not None:
+        # A non-zero skip count means the requested rate was not achievable, which is
+        # the finding - without it a saturated open-loop run reads as a merely slow one.
+        run.record(
+            Sample(
+                metric="transactions_skipped",
+                value=float(r.transactions_skipped),
+                unit="count",
+                **common,
+            )
+        )
 
 
 def _record_sb(

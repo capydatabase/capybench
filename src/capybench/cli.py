@@ -59,16 +59,46 @@ def _load_suite(path: str) -> Suite | None:
     return None
 
 
+def _tool_version(*argv: str) -> str | None:
+    """First line of ``argv --version``, or None. Never raises: this is metadata."""
+    try:
+        out = subprocess.run(argv, capture_output=True, text=True, timeout=10)  # noqa: S603
+    except (OSError, subprocess.SubprocessError):
+        return None
+    line = (out.stdout or out.stderr or "").strip().splitlines()
+    return line[0].strip() if line else None
+
+
 def _client_info(suite: Suite) -> dict[str, Any]:
-    """Reproducibility metadata stored on every run (bench_run.client)."""
-    return {
+    """Reproducibility metadata stored on every run (bench_run.client).
+
+    Results are only comparable between runs whose CLIENT is comparable. Fresh-connect
+    in particular is dominated by TLS handshake + SCRAM on the client side, so a
+    different image, libpq, or instance type moves it independently of the database.
+    Capture enough to tell afterwards whether two runs are even comparable, and pin the
+    client image in the config (see ``client_image`` in capybench.toml.example).
+    """
+    info: dict[str, Any] = {
         "hostname": platform.node(),
         "platform": platform.platform(),
         "machine": platform.machine(),
         "python": platform.python_version(),
         "cpu_count": os.cpu_count(),
         "region": suite.client_region,
+        "kernel": platform.release(),
+        "libc": "-".join(platform.libc_ver()) or None,
+        "pgbench": _tool_version("pgbench", "--version"),
+        "sysbench": _tool_version("sysbench", "--version"),
+        "psql": _tool_version("psql", "--version"),
+        "client_image": suite.client_image,
     }
+    try:
+        import psycopg
+
+        info["psycopg"] = psycopg.__version__
+    except Exception:  # pragma: no cover - metadata only
+        pass
+    return info
 
 
 # -- host vantage ---------------------------------------------------------------------
@@ -198,8 +228,20 @@ def _cmd_run(args: argparse.Namespace) -> int:
             _record_host_facts(probe, run)
 
         around = partial(_host_window, probe, run) if probe is not None else None
-        executed = scenarios.run_all(suite, run, only=only, log=_log, around=around)
-        _log(f"run {run.run_id} complete ({len(executed)} scenario(s) executed)")
+        repeats = args.repeats if args.repeats is not None else suite.run_repeats
+        repeats = max(1, repeats)
+        executed: list[str] = []
+        for i in range(repeats):
+            run.repeat = i
+            if repeats > 1:
+                _log(f"--- repeat {i + 1}/{repeats} ---")
+            executed = scenarios.run_all(suite, run, only=only, log=_log, around=around)
+        _log(
+            f"run {run.run_id} complete ({len(executed)} scenario(s) executed"
+            + (f" x {repeats} repeats)" if repeats > 1 else ")")
+        )
+        if repeats > 1:
+            _log(f"summarise with: capybench summary --config <cfg> --run {run.run_id}")
     return 0
 
 
@@ -286,6 +328,67 @@ def _check_host_probe(suite: Suite) -> bool:
     return True
 
 
+def _cmd_summary(args: argparse.Namespace) -> int:
+    """Aggregate a repeated run into a distribution.
+
+    A single benchmark pass on a node that also serves live traffic is a point estimate
+    of a noisy process - the same config re-measured minutes later moved by tens of
+    percent. This prints median plus spread across repeats so a published number can be
+    stated honestly, and flags any metric whose spread is wide enough that the median
+    should not be quoted on its own.
+    """
+    suite = _load_suite(args.config)
+    if suite is None:
+        return 2
+    try:
+        conn = psycopg.connect(suite.results_dsn, autocommit=True)
+    except psycopg.Error as exc:
+        _log(f"results DB not usable ({exc})")
+        return 1
+    with conn:
+        run_id = args.run
+        if not run_id:
+            row = conn.execute("select id::text from bench_run order by started_at desc limit 1").fetchone()
+            if row is None:
+                _log("no runs recorded")
+                return 1
+            run_id = row[0]
+        rows = conn.execute(
+            """
+            select scenario, target, concurrency, variant, metric, unit,
+                   count(*) n,
+                   min(value) lo,
+                   percentile_cont(0.5) within group (order by value) med,
+                   max(value) hi
+            from bench_sample
+            where run_id = %s
+            group by scenario, target, concurrency, variant, metric, unit
+            having count(*) > 1
+            order by scenario, target, concurrency nulls first, variant, metric
+            """,
+            (run_id,),
+        ).fetchall()
+    if not rows:
+        _log(f"run {run_id} has no repeated metrics - re-run with --repeats N (N >= 5)")
+        return 1
+    print(f"run {run_id}: distribution across repeats")
+    print(f"{'scenario':<16}{'target':<24}{'c':>4} {'metric':<22}{'n':>3} "
+          f"{'median':>10}{'min':>10}{'max':>10}{'spread':>9}")
+    noisy = 0
+    for sc, tgt, conc, var, metric, unit, n, lo, med, hi in rows:
+        spread = ((hi - lo) / med * 100.0) if med else 0.0
+        if spread >= 15.0:
+            noisy += 1
+        label = metric if not var else f"{metric}[{var}]"
+        print(f"{sc:<16}{(tgt or '-'):<24}{(conc if conc is not None else ''):>4} "
+              f"{label:<22}{n:>3} {med:>10.2f}{lo:>10.2f}{hi:>10.2f}{spread:>8.0f}%")
+    print()
+    print(f"{noisy} metric(s) span >=15% of their median across repeats.")
+    if noisy:
+        print("Quote those as a range, not a point. Spread this wide usually means the "
+              "node was shared with live workloads during the sweep.")
+    return 0
+
 def _cmd_check(args: argparse.Namespace) -> int:
     suite = _load_suite(args.config)
     if suite is None:
@@ -333,6 +436,17 @@ def main(argv: list[str] | None = None) -> int:
         "--only", help=f"comma-separated scenario subset ({', '.join(scenarios.NAMES)})"
     )
     p_run.add_argument("--notes", help="free-text note stored on the run")
+    p_run.add_argument(
+        "--repeats",
+        type=int,
+        default=None,
+        help=(
+            "execute the selected scenarios N times in one run, stamping params.repeat. "
+            "A single pass on a shared node is not publishable - throughput here varies "
+            "by tens of percent depending on what else is awake. Use >=5 and report the "
+            "distribution via `capybench summary`."
+        ),
+    )
     p_run.set_defaults(func=_cmd_run)
 
     p_chart = sub.add_parser("chart", help="render SVG charts from stored samples")
@@ -348,6 +462,13 @@ def main(argv: list[str] | None = None) -> int:
     p_report.add_argument("--run", help="run UUID (default: latest)")
     p_report.add_argument("--out", default="report.html")
     p_report.set_defaults(func=_cmd_report)
+
+    p_summary = sub.add_parser(
+        "summary", help="aggregate a repeated run into median + spread per metric"
+    )
+    p_summary.add_argument("--config", required=True)
+    p_summary.add_argument("--run", help="run UUID (default: latest)")
+    p_summary.set_defaults(func=_cmd_summary)
 
     p_check = sub.add_parser("check", help="validate config, tools, providers, results DB")
     p_check.add_argument("--config", required=True)
