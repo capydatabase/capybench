@@ -11,8 +11,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/capy-base/capybench"
-Repository = "https://github.com/capy-base/capybench"
+Homepage = "https://github.com/capydatabase/capybench"
+Repository = "https://github.com/capydatabase/capybench"
 
 [project.scripts]
 capybench = "capybench.cli:main"

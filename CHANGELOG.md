@@ -38,7 +38,7 @@ Load runs must originate from a client colocated with the target region to be me
   without those capabilities.
 - `query_latency` scenario (warm p95 of 0.81 ms measured on production nodes).
 - `capybench report` — a self-contained HTML report.
-- MIT licence and contribution guide, ready to publish as `github.com/capy-base/capybench`.
+- MIT licence and contribution guide, ready to publish as `github.com/capydatabase/capybench`.
 
 ### Fixed
 
