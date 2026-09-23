@@ -62,7 +62,7 @@ def _load_suite(path: str) -> Suite | None:
 def _tool_version(*argv: str) -> str | None:
     """First line of ``argv --version``, or None. Never raises: this is metadata."""
     try:
-        out = subprocess.run(argv, capture_output=True, text=True, timeout=10)  # noqa: S603
+        out = subprocess.run(argv, capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return None
     line = (out.stdout or out.stderr or "").strip().splitlines()
@@ -348,7 +348,9 @@ def _cmd_summary(args: argparse.Namespace) -> int:
     with conn:
         run_id = args.run
         if not run_id:
-            row = conn.execute("select id::text from bench_run order by started_at desc limit 1").fetchone()
+            row = conn.execute(
+                "select id::text from bench_run order by started_at desc limit 1"
+            ).fetchone()
             if row is None:
                 _log("no runs recorded")
                 return 1
@@ -372,22 +374,29 @@ def _cmd_summary(args: argparse.Namespace) -> int:
         _log(f"run {run_id} has no repeated metrics - re-run with --repeats N (N >= 5)")
         return 1
     print(f"run {run_id}: distribution across repeats")
-    print(f"{'scenario':<16}{'target':<24}{'c':>4} {'metric':<22}{'n':>3} "
-          f"{'median':>10}{'min':>10}{'max':>10}{'spread':>9}")
+    print(
+        f"{'scenario':<16}{'target':<24}{'c':>4} {'metric':<22}{'n':>3} "
+        f"{'median':>10}{'min':>10}{'max':>10}{'spread':>9}"
+    )
     noisy = 0
-    for sc, tgt, conc, var, metric, unit, n, lo, med, hi in rows:
+    for sc, tgt, conc, var, metric, _unit, n, lo, med, hi in rows:
         spread = ((hi - lo) / med * 100.0) if med else 0.0
         if spread >= 15.0:
             noisy += 1
         label = metric if not var else f"{metric}[{var}]"
-        print(f"{sc:<16}{(tgt or '-'):<24}{(conc if conc is not None else ''):>4} "
-              f"{label:<22}{n:>3} {med:>10.2f}{lo:>10.2f}{hi:>10.2f}{spread:>8.0f}%")
+        print(
+            f"{sc:<16}{(tgt or '-'):<24}{(conc if conc is not None else ''):>4} "
+            f"{label:<22}{n:>3} {med:>10.2f}{lo:>10.2f}{hi:>10.2f}{spread:>8.0f}%"
+        )
     print()
     print(f"{noisy} metric(s) span >=15% of their median across repeats.")
     if noisy:
-        print("Quote those as a range, not a point. Spread this wide usually means the "
-              "node was shared with live workloads during the sweep.")
+        print(
+            "Quote those as a range, not a point. Spread this wide usually means the "
+            "node was shared with live workloads during the sweep."
+        )
     return 0
+
 
 def _cmd_check(args: argparse.Namespace) -> int:
     suite = _load_suite(args.config)

@@ -10,6 +10,8 @@ Load runs must originate from a client colocated with the target region to be me
 
 ### Added
 
+- CI (`.github/workflows/ci.yml`): `ruff check`, `ruff format --check` and `pytest` on every push
+  and pull request to `main`. Until now only commit messages were checked.
 - Open-loop load generation (`open_loop_rates_tps`, `open_loop_clients`,
   `open_loop_latency_limit_ms` under `[throughput]`). The existing concurrency sweep is closed
   loop, which is subject to coordinated omission: when the database stalls the client stalls with
