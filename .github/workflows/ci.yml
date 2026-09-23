@@ -15,7 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      # setup-uv publishes no floating major tag from v8 on; pin the release.
+      - uses: astral-sh/setup-uv@v10.2.0
         with:
           python-version: "3.13"
       - run: uv sync --locked
