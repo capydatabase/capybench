@@ -37,6 +37,8 @@ Load runs must originate from a client colocated with the target region to be me
   `finally` block when the closing host-probe sample failed, which discards the exception in
   flight - so a scenario that raised was logged as executed instead of FAILED. Python 3.14 also
   warns about it on every start (`SyntaxWarning: 'return' in a 'finally' block`, PEP 765).
+- **`capybench report` crashed on every run** with `IndexError: tuple index out of range`: the
+  run metadata query read an `attestation` column it never selected.
 
 ## [1.1.0] - 2026-08-17
 
