@@ -140,6 +140,16 @@ class QueryLatencyConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class KVLatencyConfig:
+    target: str  # the target whose provider resolves the K/V store (needs Capability.KV)
+    # Env var holding the store's access token. Never the TOML: the token is a secret, and
+    # platforms hand it out once, at creation.
+    token_env: str = "CAPYKV_REST_TOKEN"
+    repeats: int = 500  # warm round-trips per command and protocol
+    connect_repeats: int = 30  # fresh TLS (+ AUTH) connects per protocol
+
+
+@dataclass(frozen=True, slots=True)
 class FactSheetConfig:
     targets: tuple[str, ...] | None = None  # None = every configured target
     probe_gucs: bool = True  # try SET LOCAL on runtime GUCs to prove what is settable
@@ -217,6 +227,7 @@ class Suite:
     branch_speed: BranchSpeedConfig | None = None
     cold_start: ColdStartConfig | None = None
     query_latency: QueryLatencyConfig | None = None
+    kv_latency: KVLatencyConfig | None = None
     fact_sheet: FactSheetConfig | None = None
     connection_ceiling: ConnectionCeilingConfig | None = None
     sustained: SustainedConfig | None = None
@@ -450,6 +461,17 @@ def load(path: str | Path) -> Suite:
             rows=int(ql.get("rows", 10_000)),
         )
 
+    kv_latency = None
+    if isinstance(kv := data.get("kv_latency"), dict):
+        kv_latency = KVLatencyConfig(
+            target=_req_str_key(kv, "target", "kv_latency"),
+            token_env=_opt_str_key(kv, "token_env", "kv_latency") or "CAPYKV_REST_TOKEN",
+            repeats=_positive_int(kv.get("repeats"), "kv_latency.repeats", default=500),
+            connect_repeats=_positive_int(
+                kv.get("connect_repeats"), "kv_latency.connect_repeats", default=30
+            ),
+        )
+
     fact_sheet = None
     if isinstance(fs := data.get("fact_sheet"), dict):
         fact_sheet = FactSheetConfig(
@@ -528,6 +550,7 @@ def load(path: str | Path) -> Suite:
         branch_speed=branch,
         cold_start=cold,
         query_latency=query_latency,
+        kv_latency=kv_latency,
         fact_sheet=fact_sheet,
         connection_ceiling=connection_ceiling,
         sustained=sustained,

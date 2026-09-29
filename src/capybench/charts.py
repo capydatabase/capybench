@@ -48,6 +48,7 @@ def build_figures(conn: psycopg.Connection, run_id: str) -> list[tuple[str, plt.
     """
     builders: tuple[tuple[str, Callable[[psycopg.Connection, str], plt.Figure | None]], ...] = (
         ("query_latency", _chart_query_latency),
+        ("kv_latency", _chart_kv_latency),
         ("connection_ceiling", _chart_connection_ceiling),
         ("cold_cache", _chart_cold_cache),
         ("throughput", _chart_throughput),
@@ -189,6 +190,50 @@ def _chart_query_latency(conn: psycopg.Connection, run_id: str) -> plt.Figure | 
         ax.grid(True, axis="y", alpha=0.3)
 
     fig.suptitle("Single-query latency (warm connection) & fresh-connect")
+    return fig
+
+
+def _chart_kv_latency(conn: psycopg.Connection, run_id: str) -> plt.Figure | None:
+    rows = conn.execute(
+        """
+        select variant, metric, value
+        from bench_sample
+        where run_id = %s and scenario = 'kv_latency' and vantage = 'client'
+          and metric in ('p50_ms', 'p95_ms', 'p99_ms')
+        order by variant, metric
+        """,
+        (run_id,),
+    ).fetchall()
+    if not rows:
+        return None
+
+    # {protocol: {command: {metric: value}}}; variants are "<protocol>-<command>".
+    data: dict[str, dict[str, dict[str, float]]] = defaultdict(lambda: defaultdict(dict))
+    for variant, metric, value in rows:
+        protocol, _, command = variant.partition("-")
+        data[protocol][command][metric] = value
+
+    protocols = [p for p in ("rest", "resp") if p in data]
+    fig, axes = plt.subplots(1, len(protocols), figsize=(5.5 * len(protocols), 5))
+    if len(protocols) == 1:
+        axes = [axes]
+
+    metrics = ("p50_ms", "p95_ms", "p99_ms")
+    order = ("ping", "get", "set", "fresh-connect")
+    for ax, protocol in zip(axes, protocols, strict=True):
+        commands = [c for c in order if c in data[protocol]]
+        _grouped_bars(
+            ax,
+            commands,
+            [
+                (m.removesuffix("_ms"), [data[protocol][c].get(m, 0.0) for c in commands])
+                for m in metrics
+            ],
+            ylabel="latency (ms)",
+            title=protocol.upper(),
+        )
+
+    fig.suptitle("Key-value round trip (warm connection) & fresh connect")
     return fig
 
 

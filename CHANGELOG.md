@@ -10,6 +10,17 @@ Load runs must originate from a client colocated with the target region to be me
 
 ### Added
 
+- `kv_latency` scenario: PING / SET / GET round trips on a warm connection, plus fresh
+  connects, against a key-value store over both protocols it speaks - the Upstash-compatible
+  REST API (`POST <rest_url>`, bearer token, kept-alive HTTPS) and RESP over TLS routed by SNI
+  (`AUTH <token>`). Every variant (`rest-ping`, `resp-get`, `resp-fresh-connect`, ...) records
+  min/avg/p50/p95/p99/max like `query_latency`, with a chart and a report section. Gated on the
+  new `kv` capability: the `capydb` provider resolves the endpoints from
+  `/v1/projects/{id}/kv/credentials`; the store must already exist and its token comes from
+  the variable named by `token_env` (default `CAPYKV_REST_TOKEN`), since the API returns it
+  only at creation or rotation. Targets on other providers skip with the usual message. Both
+  clients are standard library, so no new dependency.
+
 - CI (`.github/workflows/ci.yml`): `ruff check`, `ruff format --check` and `pytest` on every push
   and pull request to `main`. Until now only commit messages were checked.
 - Open-loop load generation (`open_loop_rates_tps`, `open_loop_clients`,

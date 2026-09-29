@@ -23,6 +23,7 @@ from .config import Suite
 
 _CHART_TITLES = {
     "query_latency": "Single-query & connection latency",
+    "kv_latency": "Key-value round-trip latency",
     "connection_ceiling": "Connection ceiling",
     "cold_cache": "Cold-cache penalty",
     "throughput": "Throughput & tail latency",

@@ -34,6 +34,13 @@ These need a provider adapter, because they drive the platform's own lifecycle A
 | `cold_start` | wake-from-sleep latency as a client experiences it | `sleep` |
 | `restore_rto` | how long from "restore" to a query answered - the number nobody publishes | `restore` |
 | `provision_speed` | how long from "create me a database" to first query, and teardown | `provision` |
+| `kv_latency` | what one key-value command costs next to the database: PING / SET / GET round trips and fresh connects, over the Upstash-compatible REST API and over RESP (TLS + SNI) (p50/p95/p99) | `kv` |
+
+`kv_latency` measures a store that already exists: the provider resolves where it answers,
+and the access token comes from the environment variable named by `token_env` (default
+`CAPYKV_REST_TOKEN`), because platforms return it only when the store is created or its
+token rotated. Both clients are standard library - no Redis dependency. Its key is
+run-scoped and deleted afterwards.
 
 `throughput` additionally records exact p50/p95/p99 per-transaction percentiles parsed
 from pgbench `-l` logs (`pgbench_p50_ms` etc.), alongside the single sysbench percentile.
@@ -68,10 +75,10 @@ a name on it beats an unstated assumption.
 Scenarios needing a capability are skipped, with an explanatory message, when the provider
 behind a target does not implement it. Nothing fails and nothing is faked:
 
-| Provider type | provision | branch | sleep | restore |
-|---|---|---|---|---|
-| `generic` (any Postgres DSN) | - | - | - | - |
-| `capydb` | yes | yes | yes | yes |
+| Provider type | provision | branch | sleep | restore | kv |
+|---|---|---|---|---|---|
+| `generic` (any Postgres DSN) | - | - | - | - | - |
+| `capydb` | yes | yes | yes | yes | yes |
 
 `generic` is the default and needs no configuration - point a target at any DSN, and the
 eight DSN-only scenarios all run. Adapters for other platforms are welcome as PRs (see
@@ -190,7 +197,7 @@ src/capybench/
   providers/                   provider adapter interface + implementations
     base.py                    Provider base class, capability set, wait_connectable
     generic.py                 any Postgres DSN (no lifecycle ops)
-    capydb.py                  reference adapter: provision / branch / sleep / restore
+    capydb.py                  reference adapter: provision / branch / sleep / restore / kv
   hostprobe/                   privileged (vantage=host) adapters
     base.py                    HostProbe base class, Reading, counter deltas
     ssh.py                     PSI / cgroup v2 / ZFS arcstats over one SSH round trip
@@ -225,6 +232,8 @@ tier metadata. To bring a platform into the lifecycle scenarios:
      client connection is the wake and timing it is the measurement.
    - `Capability.RESTORE` → `restore(target, name, *, restore_time) -> Target`, which must
      restore into a *fresh* database and never over the source.
+   - `Capability.KV` → `kv_endpoint(target) -> KVEndpoint` (REST URL, RESP host and
+     port) for the target's key-value store. The access token is not part of it.
 2. Read credentials from an environment variable (configurable via a `token_env`
    setting), never from the TOML.
 3. Register the class in `src/capybench/providers/__init__.py` and add unit tests for

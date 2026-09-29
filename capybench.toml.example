@@ -223,6 +223,12 @@ sample_interval_s = 30
 # repeats = 1
 # restore_time = "2026-08-17T10:00:00Z"   # omit for the most recent recoverable state
 
+# [kv_latency]                        # capability: kv
+# target = "pg-branching"             # its provider resolves the target's K/V store
+# token_env = "CAPYKV_REST_TOKEN"     # env var holding the store's access token
+# repeats = 500                       # warm PING / SET / GET per protocol (REST and RESP)
+# connect_repeats = 30                # fresh TLS (+ AUTH) connects per protocol
+
 # [provision_speed]                   # capability: provision
 # provider = "capydb"                 # names a [providers.*] block, not a target:
 # repeats = 3                         # the whole point is creating a database from nothing

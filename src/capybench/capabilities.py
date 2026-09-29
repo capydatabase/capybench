@@ -26,6 +26,8 @@ class Capability(StrEnum):
     SLEEP = "sleep"
     #: Restore recent state into a fresh connectable database (``restore_rto``).
     RESTORE = "restore"
+    #: Resolve the REST and RESP endpoints of a target's key-value store (``kv_latency``).
+    KV = "kv"
 
 
 def describe(capabilities: frozenset[Capability]) -> str:

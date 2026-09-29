@@ -1,4 +1,4 @@
-"""CapyDB provider: provisioning, preview-database branches, forced sleep, PITR restore.
+"""CapyDB provider: provisioning, preview-database branches, forced sleep, PITR restore, K/V.
 
 Talks to the CapyDB control plane directly (stdlib ``urllib``, no extra dependencies).
 The API token is read from an environment variable - never from the TOML file - so
@@ -20,6 +20,10 @@ provisioning need an org-scoped API key; ``trigger_sleep`` uses an admin endpoin
 therefore a platform-admin token (i.e. it is intended for CapyDB operators benchmarking
 their own platform, not for customers).
 
+``kv_endpoint`` reads the endpoints of the project's K/V store; the store must already
+exist, and its access token comes from the environment (see the ``kv_latency`` scenario),
+because the API returns it only when the store is created or its token rotated.
+
 ``restore`` always restores into a *new preview database*, never over the source project.
 The control plane does expose a production-overwrite restore; it is deliberately not
 reachable from here.
@@ -37,7 +41,7 @@ from urllib import error, parse, request
 
 from ..capabilities import Capability
 from ..config import Target
-from .base import Provider, ProviderError
+from .base import KVEndpoint, Provider, ProviderError
 
 _DEFAULT_API_URL = "https://api.capydb.dev"
 _POLL_INTERVAL_S = 2.0
@@ -51,6 +55,7 @@ class CapyDBProvider(Provider):
             Capability.BRANCH,
             Capability.SLEEP,
             Capability.RESTORE,
+            Capability.KV,
         }
     )
 
@@ -186,6 +191,25 @@ class CapyDBProvider(Provider):
         if preview_id is None:
             raise ProviderError(f"restore target {name!r} not found after the restore job")
         return self._preview_target(target, name, preview_id, self.restore_timeout_s)
+
+    # -- K/V ---------------------------------------------------------------------------
+
+    def kv_endpoint(self, target: Target) -> KVEndpoint:
+        project = self._require_project(target)
+        data = self._request("GET", f"/v1/projects/{project}/kv/credentials")
+        rest_url = data.get("rest_url")
+        redis_host = data.get("redis_host")
+        redis_port = data.get("redis_port")
+        if (
+            not isinstance(rest_url, str)
+            or not rest_url
+            or not isinstance(redis_host, str)
+            or not redis_host
+            or isinstance(redis_port, bool)
+            or not isinstance(redis_port, int)
+        ):
+            raise ProviderError(f"unexpected K/V credentials response for project {project}")
+        return KVEndpoint(rest_url=rest_url, redis_host=redis_host, redis_port=redis_port)
 
     # -- internals ---------------------------------------------------------------------
 
