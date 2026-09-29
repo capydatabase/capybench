@@ -31,6 +31,13 @@ Load runs must originate from a client colocated with the target region to be me
 - README, example configuration, CLI, config loader and result store revised for the
   provider-neutral scenario set.
 
+### Fixed
+
+- **A failed scenario could be reported as executed.** `_host_window` returned from its
+  `finally` block when the closing host-probe sample failed, which discards the exception in
+  flight - so a scenario that raised was logged as executed instead of FAILED. Python 3.14 also
+  warns about it on every start (`SyntaxWarning: 'return' in a 'finally' block`, PEP 765).
+
 ## [1.1.0] - 2026-08-17
 
 ### Added
