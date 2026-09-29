@@ -152,18 +152,22 @@ def _host_window(probe: HostProbe, run: Run, scenario: str) -> Iterator[None]:
     try:
         yield
     finally:
+        # No `return` in here: it would swallow the scenario's own exception, so a
+        # failed scenario would be reported as executed whenever the closing sample
+        # also failed.
         try:
             after = probe.sample()
         except HostProbeError as exc:
             _log(f"host_probe: no closing sample for {scenario}: {exc}")
-            return
-
-        for key, reading in hostprobe.deltas(before, after).items():
-            _record_host(run, probe, scenario, key, reading.value, reading.unit, "delta")
-        for variant, snapshot in (("before", before), ("after", after)):
-            for key, reading in snapshot.items():
-                if not reading.counter:
-                    _record_host(run, probe, scenario, key, reading.value, reading.unit, variant)
+        else:
+            for key, reading in hostprobe.deltas(before, after).items():
+                _record_host(run, probe, scenario, key, reading.value, reading.unit, "delta")
+            for variant, snapshot in (("before", before), ("after", after)):
+                for key, reading in snapshot.items():
+                    if not reading.counter:
+                        _record_host(
+                            run, probe, scenario, key, reading.value, reading.unit, variant
+                        )
 
 
 def _record_host(

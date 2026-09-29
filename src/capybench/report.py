@@ -23,6 +23,7 @@ from .config import Suite
 
 _CHART_TITLES = {
     "query_latency": "Single-query & connection latency",
+    "kv_latency": "Key-value round-trip latency",
     "connection_ceiling": "Connection ceiling",
     "cold_cache": "Cold-cache penalty",
     "throughput": "Throughput & tail latency",
@@ -95,7 +96,8 @@ def render(suite: Suite, out_path: str | Path, *, run_id: str | None = None) -> 
 def _run_meta(conn: psycopg.Connection, run_id: str) -> dict[str, Any]:
     row = conn.execute(
         """
-        select id::text, harness_version, git_sha, started_at, finished_at, notes, client
+        select id::text, harness_version, git_sha, started_at, finished_at, notes, client,
+               attestation
         from bench_run where id = %s
         """,
         (run_id,),

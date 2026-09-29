@@ -7,7 +7,7 @@ material (attestation, host-vantage readings) must be visibly labelled as such.
 
 from __future__ import annotations
 
-from capybench.report import _attestation_section, _facts_table, _host_section
+from capybench.report import _attestation_section, _facts_table, _host_section, _run_meta
 
 FACTS = [
     # (category, key, target, value, source)
@@ -93,3 +93,19 @@ def test_host_section_handles_facts_without_samples() -> None:
     html = _host_section({"samples": [], "facts": [("db1", "cpu_count", "8")]})
     assert "cpu_count" in html
     assert "Change during each scenario" not in html
+
+
+def test_run_meta_reads_the_attestation_it_returns() -> None:
+    """It indexed an eighth column its select did not list, so every report crashed."""
+
+    class FakeConn:
+        def execute(self, query: str, params: tuple) -> FakeConn:
+            self.columns = query.split("from")[0].count(",") + 1
+            return self
+
+        def fetchone(self) -> tuple:
+            row = ("run", "1.1.0", "abc", None, None, None, {}, {"node": "ccx33"})
+            return row[: self.columns]
+
+    meta = _run_meta(FakeConn(), "run")
+    assert meta["attestation"] == {"node": "ccx33"}

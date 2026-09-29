@@ -28,6 +28,7 @@ from . import (
     cold_start,
     connection_ceiling,
     fact_sheet,
+    kv_latency,
     noisy_neighbor,
     provision_speed,
     query_latency,
@@ -84,6 +85,15 @@ SPECS: tuple[ScenarioSpec, ...] = (
     # -- observation: cheap, read-mostly, safe to run first ------------------------------
     _spec("fact_sheet", fact_sheet),
     _spec("query_latency", query_latency),
+    # Needs a K/V store, not just a DSN - but only reads its endpoints, so it is as
+    # harmless as the other observations. Its key is run-scoped and deleted afterwards.
+    _spec(
+        "kv_latency",
+        kv_latency,
+        requires=[Capability.KV],
+        scope="target",
+        resolves="target",
+    ),
     _spec("connection_ceiling", connection_ceiling),
     _spec("cold_cache", cold_cache),
     # -- load -----------------------------------------------------------------------------

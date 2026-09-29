@@ -17,6 +17,7 @@ from capybench import scenarios
 from capybench.config import (
     BranchSpeedConfig,
     ColdStartConfig,
+    KVLatencyConfig,
     ProviderConfig,
     ProvisionSpeedConfig,
     QueryLatencyConfig,
@@ -57,6 +58,7 @@ def test_every_spec_resolves_a_field_on_its_own_config() -> None:
     config_types = {
         "branch_speed": BranchSpeedConfig,
         "cold_start": ColdStartConfig,
+        "kv_latency": KVLatencyConfig,
         "restore_rto": RestoreRTOConfig,
         "provision_speed": ProvisionSpeedConfig,
     }
@@ -121,6 +123,25 @@ def test_restore_and_sleep_gate_on_their_own_capabilities() -> None:
     )
     assert "needs restore" in (scenarios.unsupported_reason(generic, scenarios.spec("restore_rto")))
     assert "needs sleep" in (scenarios.unsupported_reason(generic, scenarios.spec("cold_start")))
+
+
+def test_kv_latency_skips_a_target_without_a_kv_store() -> None:
+    generic = dataclasses.replace(_with_targets(), kv_latency=KVLatencyConfig(target="t"))
+    reason = scenarios.unsupported_reason(generic, scenarios.spec("kv_latency"))
+    assert reason is not None
+    assert "needs kv" in reason
+
+
+def test_kv_latency_runs_against_a_capydb_target() -> None:
+    suite = _with_targets("capydb", capydb=ProviderConfig(name="capydb", type="capydb"))
+    suite = dataclasses.replace(suite, kv_latency=KVLatencyConfig(target="t"))
+    assert scenarios.unsupported_reason(suite, scenarios.spec("kv_latency")) is None
+
+
+def test_kv_latency_is_an_observation() -> None:
+    """It only reads endpoints, so it must not be queued behind the disruptive scenarios."""
+    order = list(scenarios.NAMES)
+    assert order.index("kv_latency") < order.index("throughput")
 
 
 def test_unconfigured_scenario_has_no_reason_to_report() -> None:

@@ -9,7 +9,13 @@ import pytest
 from capybench import providers
 from capybench.capabilities import Capability
 from capybench.config import ProviderConfig, Suite, Target
-from capybench.providers import CapyDBProvider, GenericProvider, Provider, ProviderError
+from capybench.providers import (
+    CapyDBProvider,
+    GenericProvider,
+    KVEndpoint,
+    Provider,
+    ProviderError,
+)
 from capybench.providers.capydb import branch_target_from_url
 from capybench.scenarios.branch_speed import _branch_name
 
@@ -50,7 +56,13 @@ def test_create_capydb_with_aliased_block_name() -> None:
     assert isinstance(provider, CapyDBProvider)
     assert provider.name == "mycloud"
     assert provider.capabilities == frozenset(
-        {Capability.PROVISION, Capability.BRANCH, Capability.SLEEP, Capability.RESTORE}
+        {
+            Capability.PROVISION,
+            Capability.BRANCH,
+            Capability.SLEEP,
+            Capability.RESTORE,
+            Capability.KV,
+        }
     )
     assert provider.supports(Capability.RESTORE)
 
@@ -125,6 +137,43 @@ def test_capydb_requires_project_before_any_api_call() -> None:
         provider.trigger_sleep(target)
     with pytest.raises(ProviderError, match="needs 'project' set"):
         provider.create_branch(target, "b1")
+    with pytest.raises(ProviderError, match="needs 'project' set"):
+        provider.kv_endpoint(target)
+
+
+def test_capydb_kv_endpoint_reads_the_credentials_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = CapyDBProvider("capydb", {})
+    calls: list[tuple[str, str]] = []
+
+    def fake_request(method: str, path: str, *args: object, **kwargs: object) -> dict:
+        calls.append((method, path))
+        return {
+            "rest_url": "https://app-abc123.db.capydb.dev",
+            "redis_host": "app-abc123.db.capydb.dev",
+            "redis_port": 6379,
+            "redis_url": "rediss://app-abc123.db.capydb.dev:6379",
+            "token_required": True,
+        }
+
+    monkeypatch.setattr(provider, "_request", fake_request)
+    endpoint = provider.kv_endpoint(_target(provider="capydb", project="prj_1"))
+    assert calls == [("GET", "/v1/projects/prj_1/kv/credentials")]
+    assert endpoint == KVEndpoint(
+        rest_url="https://app-abc123.db.capydb.dev",
+        redis_host="app-abc123.db.capydb.dev",
+        redis_port=6379,
+    )
+
+
+def test_capydb_kv_endpoint_rejects_a_malformed_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = CapyDBProvider("capydb", {})
+    monkeypatch.setattr(provider, "_request", lambda *a, **k: {"rest_url": "https://x"})
+    with pytest.raises(ProviderError, match="unexpected K/V credentials"):
+        provider.kv_endpoint(_target(provider="capydb", project="prj_1"))
 
 
 def test_capydb_requires_token_env(monkeypatch: pytest.MonkeyPatch) -> None:

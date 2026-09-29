@@ -272,8 +272,33 @@ def test_scenario_sections_are_absent_unless_declared(tmp_path: Path) -> None:
         "cold_cache",
         "provision_speed",
         "restore_rto",
+        "kv_latency",
     ):
         assert getattr(suite, name) is None, name
+
+
+def test_kv_latency_parses_with_defaults(tmp_path: Path) -> None:
+    suite = config.load(_write(tmp_path, MINIMAL + '\n[kv_latency]\ntarget = "plain"\n'))
+    assert suite.kv_latency == config.KVLatencyConfig(target="plain")
+    assert suite.kv_latency.token_env == "CAPYKV_REST_TOKEN"
+
+
+def test_kv_latency_overrides_parse(tmp_path: Path) -> None:
+    body = MINIMAL + (
+        '\n[kv_latency]\ntarget = "plain"\ntoken_env = "MY_KV_TOKEN"\n'
+        "repeats = 100\nconnect_repeats = 5\n"
+    )
+    suite = config.load(_write(tmp_path, body))
+    assert suite.kv_latency == config.KVLatencyConfig(
+        target="plain", token_env="MY_KV_TOKEN", repeats=100, connect_repeats=5
+    )
+
+
+def test_kv_latency_rejects_a_missing_target_and_bad_counts(tmp_path: Path) -> None:
+    with pytest.raises(TypeError, match="requires 'target'"):
+        config.load(_write(tmp_path, MINIMAL + "\n[kv_latency]\nrepeats = 5\n"))
+    with pytest.raises(TypeError, match=r"kv_latency\.repeats"):
+        config.load(_write(tmp_path, MINIMAL + '\n[kv_latency]\ntarget = "plain"\nrepeats = 0\n'))
 
 
 def test_host_probe_block_parses(tmp_path: Path) -> None:

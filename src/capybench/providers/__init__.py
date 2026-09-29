@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from ..capabilities import Capability
 from ..config import ProviderConfig, Suite, Target
-from .base import Provider, ProviderError, wait_connectable
+from .base import KVEndpoint, Provider, ProviderError, wait_connectable
 from .capydb import CapyDBProvider
 from .generic import GenericProvider
 
@@ -71,6 +71,7 @@ __all__ = [
     "Capability",
     "CapyDBProvider",
     "GenericProvider",
+    "KVEndpoint",
     "Provider",
     "ProviderError",
     "by_name",

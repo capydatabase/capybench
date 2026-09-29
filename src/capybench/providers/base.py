@@ -14,6 +14,7 @@ Capability           Methods                     Scenario
 ``SLEEP``            ``trigger_sleep``           ``cold_start``
 ``RESTORE``          ``restore`` (cleaned up     ``restore_rto``
                      with ``delete_branch``)
+``KV``               ``kv_endpoint``             ``kv_latency``
 ===================  ==========================  ==============================================
 
 Scenarios that need only a connectable DSN (``throughput``, ``query_latency``,
@@ -30,6 +31,7 @@ from __future__ import annotations
 import time
 from abc import ABC
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import ClassVar
 
 from ..capabilities import Capability
@@ -38,6 +40,21 @@ from ..config import Target
 
 class ProviderError(RuntimeError):
     """A provider lifecycle operation failed, is unsupported, or is misconfigured."""
+
+
+@dataclass(frozen=True, slots=True)
+class KVEndpoint:
+    """Where a target's key-value store answers, over both protocols it speaks.
+
+    No credential: the access token is a secret the harness reads from the environment,
+    because platforms typically return it once, at creation, and never again.
+    """
+
+    #: Base URL of the Upstash-compatible REST API (``POST <rest_url>`` with a JSON array).
+    rest_url: str
+    #: RESP-over-TLS endpoint. ``redis_host`` doubles as the TLS SNI name.
+    redis_host: str
+    redis_port: int
 
 
 class Provider(ABC):
@@ -107,6 +124,12 @@ class Provider(ABC):
         accepts.
         """
         raise self._unsupported("restore")
+
+    # -- Capability.KV -------------------------------------------------------------------
+
+    def kv_endpoint(self, target: Target) -> KVEndpoint:
+        """The REST and RESP endpoints of the key-value store that belongs to ``target``."""
+        raise self._unsupported("key-value stores")
 
     # -- internals -----------------------------------------------------------------------
 
