@@ -41,6 +41,9 @@ Load runs must originate from a client colocated with the target region to be me
 
 - README, example configuration, CLI, config loader and result store revised for the
   provider-neutral scenario set.
+- Dependencies: psycopg 3.3.9, matplotlib 3.11.2 (pulls pillow 13.0.0, numpy 2.5.5,
+  python-dateutil 4.0.0); dev tools ruff 0.17.6 and pytest 9.2.0. CI runs
+  `astral-sh/setup-uv@v10.4.0`.
 
 ### Fixed
 

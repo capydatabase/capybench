@@ -6,8 +6,8 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
-    "psycopg[binary]>=3.3.4",
-    "matplotlib>=3.11.1",
+    "psycopg[binary]>=3.3.9",
+    "matplotlib>=3.11.2",
 ]
 
 [project.urls]
@@ -19,8 +19,8 @@ capybench = "capybench.cli:main"
 
 [dependency-groups]
 dev = [
-    "ruff>=0.16.1",
-    "pytest>=9.1.1",
+    "ruff>=0.17.6",
+    "pytest>=9.2.0",
 ]
 
 [build-system]
